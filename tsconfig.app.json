@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    // ... all the other default Vite settings (target, module, etc.) ...
+    
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}
