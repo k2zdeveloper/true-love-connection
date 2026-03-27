@@ -32,10 +32,9 @@ export function OnboardingGuard() {
           .from('profiles')
           .select('display_name, kyc_status')
           .eq('id', memoizedUserId)
-          .single();
+          .maybeSingle(); // <-- FIX 1: This stops the 406 Not Acceptable error
 
-        // PGRST116 means no profile row exists yet (Brand new user)
-        if (error && error.code !== 'PGRST116') throw error;
+        if (error) throw error;
 
         if (isMounted) {
           setStatus({
@@ -66,19 +65,17 @@ export function OnboardingGuard() {
   }
 
   const currentPath = location.pathname;
+  const isFullyOnboarded = status.profileDone && status.kycDone;
 
-  // 1. Force to Setup if profile is incomplete
-  if (!status.profileDone && currentPath !== '/setup') {
+  // --- FIX 2: Simplified Routing logic ---
+
+  // 1. If they haven't finished both profile AND kyc, keep them on /setup
+  if (!isFullyOnboarded && currentPath !== '/setup') {
     return <Navigate to="/setup" replace />;
   }
 
-  // 2. Force to KYC if profile is done, but KYC is missing
-  if (status.profileDone && !status.kycDone && !['/kyc', '/setup'].includes(currentPath)) {
-    return <Navigate to="/kyc" replace />;
-  }
-
-  // 3. Prevent returning to Setup/KYC if everything is already done
-  if (status.profileDone && status.kycDone && ['/setup', '/kyc'].includes(currentPath)) {
+  // 2. Prevent returning to Setup if everything is already done
+  if (isFullyOnboarded && currentPath === '/setup') {
     return <Navigate to="/discover" replace />;
   }
 

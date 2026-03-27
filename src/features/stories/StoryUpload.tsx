@@ -1,154 +1,130 @@
 import { useState, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { X, UploadCloud, Loader2, Image as ImageIcon, Video, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { Camera, Image as ImageIcon, X, ArrowLeft, Loader2, Sparkles } from "lucide-react";
 
 export function StoryUpload() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    setError("");
+    const selected = e.target.files?.[0];
+    if (!selected) return;
 
-    if (!selectedFile) return;
-    if (selectedFile.size > 5 * 1024 * 1024) {
-      setError("Image must be smaller than 5MB.");
+    // Robust file checking: Max 15MB
+    if (selected.size > 15 * 1024 * 1024) {
+      alert("File is too large. Max size is 15MB.");
       return;
     }
 
-    setFile(selectedFile);
-    setPreview(URL.createObjectURL(selectedFile));
+    const isVideo = selected.type.startsWith('video/');
+    setMediaType(isVideo ? 'video' : 'image');
+    setFile(selected);
+    setPreview(URL.createObjectURL(selected));
   };
 
-  const clearFile = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setFile(null);
-    if (preview) URL.revokeObjectURL(preview);
-    setPreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user?.id || !file) return;
-
+  const handleUpload = async () => {
+    if (!file || !user || !mediaType) return;
     setLoading(true);
-    setError("");
 
     try {
-      // 1. Secure upload path
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
+      // 1. Upload to Storage
       const { error: uploadError } = await supabase.storage
         .from('stories')
-        .upload(filePath, file, { cacheControl: '3600', upsert: false });
+        .upload(fileName, file, { cacheControl: '3600', upsert: false });
 
       if (uploadError) throw uploadError;
 
-      // 2. Get Public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('stories')
-        .getPublicUrl(filePath);
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage.from('stories').getPublicUrl(fileName);
 
-      // 3. Insert into Database with 24h Expiration
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24);
-
-      const { error: dbError } = await supabase
-        .from('stories')
-        .insert({
-          user_id: user.id,
-          image_url: publicUrl,
-          expires_at: expiresAt.toISOString()
-        });
+      // 2. Insert into DB
+      const { error: dbError } = await supabase.from('stories').insert({
+        user_id: user.id,
+        media_url: publicUrl,
+        media_type: mediaType,
+      });
 
       if (dbError) throw dbError;
 
       // Success, go back to dashboard
-      navigate("/discover", { replace: true });
-    } catch (err: any) {
-      console.error("Story upload error:", err);
-      setError("Failed to post your story. Please try again.");
+      navigate('/discover');
+    } catch (error) {
+      console.error("Upload failed:", error);
+      alert("Failed to post story. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8 md:py-12">
-      <div className="flex items-center justify-between mb-6">
-        <Link to="/discover" className="p-2 bg-white rounded-full shadow-sm border border-gray-100 hover:border-red-200 transition-colors">
-          <ArrowLeft className="w-4 h-4 text-gray-500" />
-        </Link>
-        <h2 className="text-xl font-black text-gray-900 tracking-tight">Add a Story</h2>
-        <div className="w-8" /> {/* Spacer */}
-      </div>
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md bg-gray-900 rounded-3xl overflow-hidden border border-gray-800 shadow-2xl relative">
+        {/* Header */}
+        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
+          <button onClick={() => navigate(-1)} className="text-white hover:text-red-500 transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+          <h2 className="text-white font-bold text-sm">New Story</h2>
+          <div className="w-6" />
+        </div>
 
-      <div className="bg-white/80 backdrop-blur-xl border border-red-500/10 p-5 md:p-6 rounded-[1.5rem] shadow-xl relative overflow-hidden">
-        {error && (
-          <div className="mb-4 p-2.5 bg-red-50 border-l-[3px] border-red-500 text-red-700 text-[10px] font-bold rounded-xl animate-shake">
-            {error}
+        {/* Preview Area */}
+        <div className="w-full aspect-[9/16] bg-black flex items-center justify-center relative">
+          {!preview ? (
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="flex flex-col items-center justify-center text-gray-500 cursor-pointer hover:text-white transition-colors"
+            >
+              <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center mb-4 border border-gray-700">
+                <UploadCloud className="w-8 h-8" />
+              </div>
+              <p className="font-semibold text-sm">Tap to select Image/Video</p>
+              <p className="text-xs text-gray-600 mt-2">Max 15MB</p>
+            </div>
+          ) : mediaType === 'video' ? (
+            <video src={preview} controls className="w-full h-full object-contain" />
+          ) : (
+            <img src={preview} alt="Preview" className="w-full h-full object-contain" />
+          )}
+          
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            accept="image/*,video/*" 
+            className="hidden" 
+            onChange={handleFileChange} 
+          />
+        </div>
+
+        {/* Footer Actions */}
+        {preview && (
+          <div className="p-4 bg-gray-900">
+            <button 
+              onClick={handleUpload}
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-red-600 to-rose-500 text-white font-bold py-3.5 rounded-xl shadow-lg hover:shadow-red-500/30 transition-all flex items-center justify-center disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
+              {loading ? "Posting Story..." : "Post to My Story"}
+            </button>
+            <button 
+              onClick={() => { setFile(null); setPreview(null); }}
+              className="w-full mt-3 text-gray-400 font-semibold py-2 hover:text-white transition-colors text-sm"
+            >
+              Retake
+            </button>
           </div>
         )}
-
-        <form onSubmit={handleUpload} className="space-y-5">
-          <div 
-            className={`relative group w-full aspect-[9/16] max-h-[60vh] rounded-[1.5rem] border-[1.5px] overflow-hidden flex flex-col items-center justify-center cursor-pointer transition-all ${
-              preview ? 'border-transparent shadow-md' : 'border-dashed border-gray-300 hover:border-red-400 hover:bg-red-50/50'
-            }`}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              accept="image/*" 
-              className="hidden" 
-              onChange={handleFileChange} 
-            />
-            
-            {preview ? (
-              <>
-                <img src={preview} alt="Story Preview" className="absolute inset-0 w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
-                <button 
-                  onClick={clearFile} 
-                  type="button"
-                  className="absolute top-4 right-4 p-1.5 bg-black/50 hover:bg-black/80 backdrop-blur-md text-white rounded-full transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </>
-            ) : (
-              <div className="text-center p-6 text-gray-400 group-hover:text-red-500 transition-colors">
-                <ImageIcon className="w-10 h-10 mx-auto mb-3" />
-                <p className="text-[11px] font-bold text-gray-600 mb-1">Tap to select photo</p>
-                <p className="text-[9px]">Will disappear in 24 hours</p>
-              </div>
-            )}
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={!file || loading}
-            className="w-full text-white font-black py-3 rounded-xl shadow-lg hover:shadow-red-500/40 transition-all transform hover:-translate-y-1 active:scale-95 flex items-center justify-center bg-gradient-to-r from-red-600 to-rose-500 disabled:opacity-50 disabled:hover:translate-y-0 text-xs tracking-wide"
-          >
-            {loading ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin shrink-0" /> Posting...</>
-            ) : (
-              <><Camera className="w-4 h-4 mr-2 shrink-0" /> Post to Story</>
-            )}
-          </button>
-        </form>
       </div>
     </div>
   );
